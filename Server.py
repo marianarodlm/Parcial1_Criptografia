@@ -114,7 +114,6 @@ def encrypted_chat(conn, cipher_type, key):
                 result = json.dumps({'nonce':nonce, 'ciphertext':ct})
                 msg = result.encode(FORMAT)
                 send_bytes(conn, msg)
-        return None
 
 
 def handle_client(conn, addr):
