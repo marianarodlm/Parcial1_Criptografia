@@ -70,7 +70,7 @@ def encrypted_chat(conn, cipher_type, key):
                 decrypted = cipher.decrypt(ciphertext)
                 text = decrypted.decode(FORMAT)
                 print(f"[CLIENT] {text}")
-                if text == DISCONNECT_MESSAGE:
+                if text == "end":
                     break
                 
                 # Send response
