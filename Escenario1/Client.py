@@ -4,11 +4,14 @@ import json
 from base64 import b64encode, b64decode
 # Import the Client class from ClientClass.py
 from ClientClass import Client
+import os
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 
 # Constants for the client configuration
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
-SERVER = "192.168.1.10"  # Asegúrate de que esta IP sea la del servidor
+SERVER = '192.168.1.10'  # Asegúrate de que esta IP sea la del servidor
 PORT = 5050
 
 def log_performance(algorithm, operation, duration):
@@ -156,25 +159,73 @@ def cipher_block():
     """Handle block cipher selection process with server"""
     # Send message to server indicating we want to use a block cipher
     client.send("CIPHER:BLOCK")
-        
-    # Wait for server response
-    prompt = client.receive()
-    if not prompt:
-            print("No response from server. Connection may be lost.")
-            return None
-    key = client.receive_bytes()
+    response = client.receive()
+    print("Received response from server:", response)
+    if response!="1":
+        print("Server did not accept block cipher request")
+        return None
+    key = download_key_from_drive() 
     if key:
         print(f"Received block cipher key: {key.hex()}")
         return "Block Cipher", key, 2  # Size 2 represents 256 bits
     else:
         print("Failed to receive key from server")
         return None
+    
+def download_key_from_drive():
+    """
+    Descarga el archivo de clave AES desde Google Drive
+    """
+    # Obtener la ruta absoluta del directorio del script
+    script_dir = os.path.dirname(os.path.abspath(_file_))
+    
+    # Especificar la ruta completa al archivo client_secrets.json
+    client_secrets_path = os.path.join(script_dir, "client_secrets.json")
+    
+    # Configurar GoogleAuth con la ruta explícita
+    gauth = GoogleAuth()
+    gauth.settings['client_config_file'] = client_secrets_path
+    gauth.LocalWebserverAuth()
+    
+    drive = GoogleDrive(gauth)
+
+    # Nombre del archivo a buscar en Drive
+    nombre_drive = 'llave_a_compartir.key'
+
+    # Buscar el archivo en Drive
+    file_list = drive.ListFile({'q': f"title='{nombre_drive}'"}).GetList()
+    
+    if not file_list:
+        print(f"Error: No se encontró el archivo '{nombre_drive}' en Google Drive")
+        return None
+    
+    # Obtener el primer archivo que coincida
+    archivo_drive = file_list[0]
+    print(f"Archivo encontrado en Drive: {archivo_drive['title']}")
+    
+    # Definir la ruta donde se guardará el archivo descargado
+    ruta_destino = os.path.join(script_dir, 'aes_key_received.bin')
+    
+    # Descargar el archivo
+    archivo_drive.GetContentFile(ruta_destino)
+    print(f"Archivo descargado correctamente a: {ruta_destino}")
+    
+    # Verificar que se descargó correctamente
+    if os.path.exists(ruta_destino):
+        # Leer el contenido del archivo (la clave)
+        with open(ruta_destino, 'rb') as f:
+            key = f.read()
+        print(f"Clave AES recuperada ({len(key)} bytes)")
+        return key
+    else:
+        print("Error: No se pudo descargar el archivo")
+        return None
 
 def display_menu():
     """Muestra el menú principal y solicita la opción del usuario."""
     print("\n===== ENCRYPTED COMMUNICATION CLIENT =====")
     print("1. Iniciar sesión de comunicación segura")
-    print("2. Salir")
+    print("2. Cifrador de bloque")
     
     try:
         choice = int(input("\nSelecciona una opción (1-2): "))
@@ -193,6 +244,7 @@ try:
     client = Client(server_ip=SERVER, port=PORT)
     
     option = display_menu()
+    client.send(f"{option}")
     if option == 1:
         result = select_cipher(client)
         if result:

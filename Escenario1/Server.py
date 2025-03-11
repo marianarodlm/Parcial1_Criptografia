@@ -149,12 +149,17 @@ def send_key_drive():
     archivo_drive.SetContentFile(ruta_archivo)
     archivo_drive.Upload()
     print("Archivo subido correctamente a Google Drive.")
+    
 
 def handle_client(conn, addr):
     print(f"[NEW CONNECTION] {addr} connected.")
     connected = True
-    send_message(conn, "PROMPT: Select the cipher (1 for Salsa20, 2 for ChaCha20):")
-
+    
+    #execute this only if client chooses option 1
+    client_choice = receive_message(conn)
+    if client_choice == "1":
+        send_message(conn, "PROMPT: Select the cipher (1 for Salsa20, 2 for ChaCha20):")
+    
     while connected:
         try:
             msg = receive_message(conn)
@@ -190,10 +195,15 @@ def handle_client(conn, addr):
                         # Ahora usar esta ruta para guardar el archivo
                         with open(aes_key_path, "wb") as f:
                             f.write(key)
-                        with open("aes_key.bin", "wb") as f:
-                            f.write(key)
                         send_key_drive()
                         print(f"[{addr}] Sent block cipher key: {key.hex()}")
+                        try:
+                            os.remove(aes_key_path)
+                            print(f"[SECURITY] Archivo local {aes_key_path} eliminado por seguridad.")
+                        except Exception as e:
+                            print(f"[WARNING] No se pudo eliminar el archivo local: {e}")
+                            
+                        send_message(conn, "1")
                         # No llamamos a encrypted_chat aquí, ya que necesitaríamos una función específica
                         # para el cifrador de bloque
                         continue
