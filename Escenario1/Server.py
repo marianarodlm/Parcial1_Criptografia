@@ -4,6 +4,9 @@ from base64 import b64decode, b64encode
 import threading 
 from Cryptodome.Random import get_random_bytes
 from Cryptodome.Cipher import Salsa20, ChaCha20
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
+import os
 
 HEADER = 64
 PORT = 5050
@@ -115,6 +118,37 @@ def encrypted_chat(conn, cipher_type, key):
                 msg = result.encode(FORMAT)
                 send_bytes(conn, msg)
 
+def send_key_drive():
+    # Obtener la ruta absoluta del directorio del script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Especificar la ruta completa al archivo client_secrets.json
+    client_secrets_path = os.path.join(script_dir, "client_secrets.json")
+    
+    # Configurar GoogleAuth con la ruta explícita
+    gauth = GoogleAuth()
+    gauth.settings['client_config_file'] = client_secrets_path
+    gauth.LocalWebserverAuth()
+    
+    drive = GoogleDrive(gauth)
+
+    # Obtener la ruta completa al archivo de clave
+    ruta_archivo = os.path.join(script_dir, 'aes_key.bin')
+    nombre_drive = 'llave_a_compartir.key'
+
+    # Buscar si el archivo ya existe en Drive
+    file_list = drive.ListFile({'q': f"title='{nombre_drive}'"}).GetList()
+    
+    if file_list:
+        archivo_drive = file_list[0]
+        print("Archivo existente encontrado, será actualizado.")
+    else:
+        archivo_drive = drive.CreateFile({'title': nombre_drive})
+        print("Creando nuevo archivo en Drive.")
+
+    archivo_drive.SetContentFile(ruta_archivo)
+    archivo_drive.Upload()
+    print("Archivo subido correctamente a Google Drive.")
 
 def handle_client(conn, addr):
     print(f"[NEW CONNECTION] {addr} connected.")
@@ -149,7 +183,16 @@ def handle_client(conn, addr):
                         print(f"[{addr}] Selected block cipher")
                         key = get_random_bytes(32)
                         # Enviar la clave al cliente usando la función send_bytes
-                        send_bytes(conn, key)
+                        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+                        aes_key_path = os.path.join(script_dir, "aes_key.bin")
+
+                        # Ahora usar esta ruta para guardar el archivo
+                        with open(aes_key_path, "wb") as f:
+                            f.write(key)
+                        with open("aes_key.bin", "wb") as f:
+                            f.write(key)
+                        send_key_drive()
                         print(f"[{addr}] Sent block cipher key: {key.hex()}")
                         # No llamamos a encrypted_chat aquí, ya que necesitaríamos una función específica
                         # para el cifrador de bloque
@@ -180,4 +223,4 @@ def start():
         print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 1}") 
 
 print("[STARTING] server is starting...")
-start() 
+start()
