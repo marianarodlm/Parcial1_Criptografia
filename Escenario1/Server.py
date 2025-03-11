@@ -7,6 +7,8 @@ from Cryptodome.Cipher import Salsa20, ChaCha20
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 import os
+from Cryptodome.Cipher import AES
+from Cryptodome.Util.Padding import pad, unpad 
 
 HEADER = 64
 PORT = 5050
@@ -118,6 +120,84 @@ def encrypted_chat(conn, cipher_type, key):
                 msg = result.encode(FORMAT)
                 send_bytes(conn, msg)
 
+def encrypted_chat2(client, cipher_type, key, security_option):
+    print("\n--- Encrypted Chat Started ---")
+    while True:
+        if security_option == "1":
+            response = client.receive_bytes()
+            json_input = response.decode(FORMAT)
+            if cipher_type == "ECB":
+                try:
+                    b64 = json.loads(json_input)
+                    iv = b64decode(b64['iv'])
+                    ct = b64decode(b64['ciphertext'])
+                    cipher = AES.new(key, AES.MODE_CBC, iv)
+                    pt = unpad(cipher.decrypt(ct), AES.block_size)
+                    print("The message was: ", pt)
+                except (ValueError, KeyError):
+                    print("Incorrect decryption")
+            elif cipher_type == "CBC":
+                try:
+                    b64 = json.loads(json_input)
+                    iv = b64decode(b64['iv'])
+                    ct = b64decode(b64['ciphertext'])
+                    cipher = AES.new(key, AES.MODE_CBC, iv)
+                    pt = unpad(cipher.decrypt(ct), AES.block_size)
+                    print("The message was: ", pt)
+                except (ValueError, KeyError):
+                    print("Incorrect decryption")
+            else: # CTR 
+                try:
+                    b64 = json.loads(json_input)
+                    nonce = b64decode(b64['nonce'])
+                    ct = b64decode(b64['ciphertext'])
+                    cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
+                    pt = cipher.decrypt(ct)
+                    print("The message was: ", pt)
+                except (ValueError, KeyError):
+                    print("Incorrect decryption")
+        
+            user_input = input("SERVER: ")
+            if user_input == DISCONNECT_MESSAGE:
+                send_message(client, DISCONNECT_MESSAGE)
+                break
+            if cipher_type == "ECB":
+                cipher = AES.new(key, AES.MODE_ECB)
+                ct_bytes = cipher.encrypt(pad(user_input, AES.block_size))
+                iv = b64encode(cipher.iv).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({'iv':iv, 'ciphertext':ct})
+            elif cipher_type == "CBC":
+                cipher = AES.new(key, AES.MODE_CBC)
+                ct_bytes = cipher.encrypt(pad(user_input, AES.block_size))
+                iv = b64encode(cipher.iv).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({'iv':iv, 'ciphertext':ct})
+            else: # CTR
+                cipher = AES.new(key, AES.MODE_CTR)
+                ct_bytes = cipher.encrypt(user_input)
+                nonce = b64encode(cipher.nonce).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({'nonce':nonce, 'ciphertext':ct})
+
+            msg = result.encode('utf-8')
+            print("sent")
+            client.send_bytes(msg)
+            
+        if security_option == "2":
+            key2 = get_random_bytes(32)
+            cipher = AES.new(key, AES.MODE_CBC)
+            ct_bytes = cipher.encrypt(pad(key2, AES.block_size))
+            iv = b64encode(cipher.iv).decode('utf-8')
+            ct = b64encode(ct_bytes).decode('utf-8')
+            result = json.dumps({'iv':iv, 'ciphertext':ct})
+            msg = result.encode(FORMAT)
+            client.send_bytes(msg)
+            # Recibir confirmación del cliente
+            
+            
+
+    
 def send_key_drive():
     # Obtener la ruta absoluta del directorio del script
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -150,7 +230,6 @@ def send_key_drive():
     archivo_drive.Upload()
     print("Archivo subido correctamente a Google Drive.")
     
-
 def handle_client(conn, addr):
     print(f"[NEW CONNECTION] {addr} connected.")
     connected = True
@@ -204,9 +283,29 @@ def handle_client(conn, addr):
                             print(f"[WARNING] No se pudo eliminar el archivo local: {e}")
                             
                         send_message(conn, "1")
-                        # No llamamos a encrypted_chat aquí, ya que necesitaríamos una función específica
-                        # para el cifrador de bloque
-                        continue
+                    try:
+                        # Esperar a que el cliente indique que ha recibido la clave
+                        msg = receive_message(conn)
+                        if msg == "KEY_RECEIVED":
+                            print(f"[{addr}] Client confirmed key reception")
+                            
+                            # Enviar prompt al cliente para seleccionar el modo de cifrado
+                            send_message(conn, "PROMPT: Select the AES encryption mode (1: ECB, 2: CBC, 3: CTR):")
+                            
+                            # Recibir la selección del cliente
+                            aes_option = receive_message(conn)
+                            if aes_option and aes_option.startswith("AES_MODE:"):
+                                selected_mode = aes_option[9:]  # Extraer la opcion después de "AES_MODE:"
+                                print(f"[{addr}] Selected AES mode: {selected_mode}")
+                                send_message(conn, "PROMPT: Select the security technique addition (1: None, 2: Double cipher, 3: Triple cipher 4.Key whitening):")
+                                security_option = receive_message(conn)
+                                # recibir opción
+                                encrypted_chat2(conn, selected_mode, key,security_option)
+                    except Exception as e:
+                     print(f"[ERROR in handle_client2] {e}")
+                    finally:
+                      conn.close()
+                      print(f"[DISCONNECTED] {addr} disconnected.")
 
                     # Solo llamar a encrypted_chat para Salsa20 y ChaCha20
                     if selected_cipher in ["Salsa20", "ChaCha20"]:

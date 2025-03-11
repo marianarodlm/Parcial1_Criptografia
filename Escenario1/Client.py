@@ -2,6 +2,8 @@ import time
 from Cryptodome.Cipher import Salsa20, ChaCha20
 import json
 from base64 import b64encode, b64decode
+from Cryptodome.Cipher import AES
+from Cryptodome.Util.Padding import pad, unpad 
 # Import the Client class from ClientClass.py
 from ClientClass import Client
 import os
@@ -103,6 +105,87 @@ def encrypted_chat(client, cipher_type, key):
             if text == DISCONNECT_MESSAGE:
                 chat_active = False
 
+def encrypted_chat2(client, selected_mode, key, choice_security):
+    """Establece una sesión de chat cifrado con el servidor, midiendo tiempos de cifrado y descifrado."""
+    print("\n--- Encrypted Chat Started ---")
+    print("Escribe tus mensajes y presiona Enter para enviar.")
+    print("Escribe 'end' para desconectar.")
+    chat_active = True
+    while chat_active:
+        user_input = input("You: ")
+        if user_input.lower() == "end":
+            print("Enviando mensaje de desconexión y finalizando chat...")
+            user_input = "end"
+            chat_active = False
+        
+        if choice_security == "1":
+            # ENVIAR MENSAJE CIFRADO AL SERVIDOR
+            if selected_mode == "ECB":
+                cipher = AES.new(key, AES.MODE_ECB)
+                ct_bytes = cipher.encrypt(pad(user_input, AES.block_size))
+                iv = b64encode(cipher.iv).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({'iv':iv, 'ciphertext':ct})
+            elif selected_mode == "CBC":
+                cipher = AES.new(key, AES.MODE_CBC)
+                ct_bytes = cipher.encrypt(pad(user_input, AES.block_size))
+                iv = b64encode(cipher.iv).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({'iv':iv, 'ciphertext':ct})
+            else: # CTR
+                cipher = AES.new(key, AES.MODE_CTR)
+                ct_bytes = cipher.encrypt(user_input)
+                nonce = b64encode(cipher.nonce).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({'nonce':nonce, 'ciphertext':ct})
+
+            msg = result.encode('utf-8')
+            print("sent")
+            client.send_bytes(msg)
+            if not chat_active:
+                break
+
+            response = client.receive_bytes()
+            json_input = response.decode(FORMAT)
+            # RECIBIR MENSAJE CIFRADO DEL SERVIDOR Y DESCIFRAR
+            if selected_mode == "ECB":
+                try:
+                    b64 = json.loads(json_input)
+                    iv = b64decode(b64['iv'])
+                    ct = b64decode(b64['ciphertext'])
+                    cipher = AES.new(key, AES.MODE_CBC, iv)
+                    pt = unpad(cipher.decrypt(ct), AES.block_size)
+                    print("The message was: ", pt)
+                except (ValueError, KeyError):
+                    print("Incorrect decryption")
+            elif selected_mode == "CBC":
+                try:
+                    b64 = json.loads(json_input)
+                    iv = b64decode(b64['iv'])
+                    ct = b64decode(b64['ciphertext'])
+                    cipher = AES.new(key, AES.MODE_CBC, iv)
+                    pt = unpad(cipher.decrypt(ct), AES.block_size)
+                    print("The message was: ", pt)
+                except (ValueError, KeyError):
+                    print("Incorrect decryption")
+            else: # CTR 
+                try:
+                    b64 = json.loads(json_input)
+                    nonce = b64decode(b64['nonce'])
+                    ct = b64decode(b64['ciphertext'])
+                    cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
+                    pt = cipher.decrypt(ct)
+                    print("The message was: ", pt)
+                except (ValueError, KeyError):
+                    print("Incorrect decryption")
+        elif choice_security=="2":
+            pass
+        elif choice_security=="3":
+            pass
+        elif choice_security=="4":
+            pass    
+            
+
 def select_cipher(client):
     """Gestiona la selección del cifrador por parte del cliente."""
     prompt = client.receive()
@@ -165,19 +248,61 @@ def cipher_block():
         print("Server did not accept block cipher request")
         return None
     key = download_key_from_drive() 
-    if key:
-        print(f"Received block cipher key: {key.hex()}")
-        return "Block Cipher", key, 2  # Size 2 represents 256 bits
-    else:
-        print("Failed to receive key from server")
+    if not key:
+        print("Failed to receive key from Google Drive")
         return None
+    
+    print(f"Received block cipher key: {key.hex()}")
+    client.send("KEY RECEIVED")
+    aes_prompt = client.receive()
+    if not aes_prompt:
+        print("No response from server after sending key received confirmation")
+        return None
+    print(aes_prompt)
+    valid = False
+    while not valid: 
+        try:
+            aes_mode = int(input("Selecciona el modo (1: ECB, 2: CBC, 3: CTR): "))
+            if aes_mode == 1:
+                mode = "ECB"
+                valid = True
+            elif aes_mode == 2:
+                mode = "CBC"
+                valid = True
+            elif aes_mode == 3:
+                mode = "CTR"
+                valid = True
+            else:
+                print("Modo inválido")
+        except ValueError:
+            print("Selecciona un número")
+    send_mode = (f"MODE:{mode}")
+    client.send(send_mode)
+    response = client.receive()
+    while True:
+        choice_security = input(f"response")
+        if choice_security == "1":
+            break
+        elif choice_security == "2":
+            break
+        elif choice_security == "3":
+            break
+        elif choice_security == "4":
+            break
+        else:
+            print("Invalid input")
+    client.send(choice_security)
+    encrypted_chat2(client, mode, key, choice_security)
+    
+    
+        
     
 def download_key_from_drive():
     """
     Descarga el archivo de clave AES desde Google Drive
     """
     # Obtener la ruta absoluta del directorio del script
-    script_dir = os.path.dirname(os.path.abspath(_file_))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     
     # Especificar la ruta completa al archivo client_secrets.json
     client_secrets_path = os.path.join(script_dir, "client_secrets.json")
@@ -220,7 +345,7 @@ def download_key_from_drive():
     else:
         print("Error: No se pudo descargar el archivo")
         return None
-
+    
 def display_menu():
     """Muestra el menú principal y solicita la opción del usuario."""
     print("\n===== ENCRYPTED COMMUNICATION CLIENT =====")
