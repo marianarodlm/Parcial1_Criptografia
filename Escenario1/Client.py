@@ -151,6 +151,24 @@ def select_cipher(client):
     else:
         print("No se pudo recibir la llave del servidor")
         return None
+    
+def cipher_block():
+    """Handle block cipher selection process with server"""
+    # Send message to server indicating we want to use a block cipher
+    client.send("CIPHER:BLOCK")
+        
+    # Wait for server response
+    prompt = client.receive()
+    if not prompt:
+            print("No response from server. Connection may be lost.")
+            return None
+    key = client.receive_bytes()
+    if key:
+        print(f"Received block cipher key: {key.hex()}")
+        return "Block Cipher", key, 2  # Size 2 represents 256 bits
+    else:
+        print("Failed to receive key from server")
+        return None
 
 def display_menu():
     """Muestra el menú principal y solicita la opción del usuario."""
@@ -183,7 +201,13 @@ try:
             print(f"- Algoritmo: {cipher}")
             print(f"- Tamaño de llave: {size} ({16 if size == 1 else 32} bytes)")
     elif option == 2:
-        print("Saliendo de la aplicación...")
+        print("Requestig block cipher from server")
+        result = cipher_block()
+        if result:
+            cipher, key, size = result
+            print(f"\nBlock cipher protocol established successfully:")
+            print(f"- Algorithm: {cipher}")
+            print(f"- Key size: {size} ({16 if size == 1 else 32} bytes)")
 except Exception as e:
     print(f"Ocurrió un error: {e}")
 finally:

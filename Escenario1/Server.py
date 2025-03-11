@@ -145,7 +145,19 @@ def handle_client(conn, addr):
                         # Use send_bytes instead of direct conn.send
                         send_bytes(conn, key)
                         print(f"[{addr}] Sent key: {key.hex()}")
-                    encrypted_chat(conn, selected_cipher, key)
+                    elif selected_cipher == "BLOCK":
+                        print(f"[{addr}] Selected block cipher")
+                        key = get_random_bytes(32)
+                        # Enviar la clave al cliente usando la función send_bytes
+                        send_bytes(conn, key)
+                        print(f"[{addr}] Sent block cipher key: {key.hex()}")
+                        # No llamamos a encrypted_chat aquí, ya que necesitaríamos una función específica
+                        # para el cifrador de bloque
+                        continue
+
+                    # Solo llamar a encrypted_chat para Salsa20 y ChaCha20
+                    if selected_cipher in ["Salsa20", "ChaCha20"]:
+                        encrypted_chat(conn, selected_cipher, key)
                     break
                 elif msg == DISCONNECT_MESSAGE:
                     connected = False

@@ -72,3 +72,5 @@ class Client:
             print("Conexión cerrada.")
         except Exception as e:
             print(f"Error al cerrar la conexión: {e}")
+
+   
