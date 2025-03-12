@@ -13,7 +13,7 @@ from pydrive2.drive import GoogleDrive
 # Constants for the client configuration
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
-SERVER = '192.168.1.10'  # Asegúrate de que esta IP sea la del servidor
+SERVER = '192.168.1.62'  # Asegúrate de que esta IP sea la del servidor
 PORT = 5050
 
 def log_performance(algorithm, operation, duration):
@@ -111,28 +111,32 @@ def encrypted_chat2(client, selected_mode, key, choice_security):
     print("Escribe tus mensajes y presiona Enter para enviar.")
     print("Escribe 'end' para desconectar.")
     chat_active = True
+    print(type(choice_security))
+    print(choice_security)
     while chat_active:
         user_input = input("You: ")
         if user_input.lower() == "end":
             print("Enviando mensaje de desconexión y finalizando chat...")
             user_input = "end"
             chat_active = False
-        
         if choice_security == "1":
             # ENVIAR MENSAJE CIFRADO AL SERVIDOR
             if selected_mode == "ECB":
+                plaintext = user_input.encode(FORMAT)
                 cipher = AES.new(key, AES.MODE_ECB)
-                ct_bytes = cipher.encrypt(pad(user_input, AES.block_size))
-                iv = b64encode(cipher.iv).decode('utf-8')
+                # Ahora aplicar padding al objeto bytes
+                ct_bytes = cipher.encrypt(pad(plaintext, AES.block_size))
                 ct = b64encode(ct_bytes).decode('utf-8')
-                result = json.dumps({'iv':iv, 'ciphertext':ct})
+                result = json.dumps({'ciphertext':ct})
             elif selected_mode == "CBC":
+                user_input = user_input.encode(FORMAT)
                 cipher = AES.new(key, AES.MODE_CBC)
                 ct_bytes = cipher.encrypt(pad(user_input, AES.block_size))
                 iv = b64encode(cipher.iv).decode('utf-8')
                 ct = b64encode(ct_bytes).decode('utf-8')
                 result = json.dumps({'iv':iv, 'ciphertext':ct})
             else: # CTR
+                user_input = user_input.encode(FORMAT)
                 cipher = AES.new(key, AES.MODE_CTR)
                 ct_bytes = cipher.encrypt(user_input)
                 nonce = b64encode(cipher.nonce).decode('utf-8')
@@ -151,11 +155,10 @@ def encrypted_chat2(client, selected_mode, key, choice_security):
             if selected_mode == "ECB":
                 try:
                     b64 = json.loads(json_input)
-                    iv = b64decode(b64['iv'])
                     ct = b64decode(b64['ciphertext'])
-                    cipher = AES.new(key, AES.MODE_CBC, iv)
+                    cipher = AES.new(key, AES.MODE_ECB)
                     pt = unpad(cipher.decrypt(ct), AES.block_size)
-                    print("The message was: ", pt)
+                    print("The message was: ", pt.decode(FORMAT))
                 except (ValueError, KeyError):
                     print("Incorrect decryption")
             elif selected_mode == "CBC":
@@ -165,7 +168,7 @@ def encrypted_chat2(client, selected_mode, key, choice_security):
                     ct = b64decode(b64['ciphertext'])
                     cipher = AES.new(key, AES.MODE_CBC, iv)
                     pt = unpad(cipher.decrypt(ct), AES.block_size)
-                    print("The message was: ", pt)
+                    print("The message was: ", pt.decode(FORMAT))
                 except (ValueError, KeyError):
                     print("Incorrect decryption")
             else: # CTR 
@@ -175,15 +178,577 @@ def encrypted_chat2(client, selected_mode, key, choice_security):
                     ct = b64decode(b64['ciphertext'])
                     cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
                     pt = cipher.decrypt(ct)
-                    print("The message was: ", pt)
+                    print("The message was: ", pt.decode(FORMAT))
                 except (ValueError, KeyError):
                     print("Incorrect decryption")
         elif choice_security=="2":
-            pass
+            key2 = client.receive_bytes()
+            json_input = key2.decode(FORMAT)
+            try:
+                b64 = json.loads(json_input)
+                iv = b64decode(b64['iv'])
+                ct = b64decode(b64['ciphertext'])
+                cipher = AES.new(key, AES.MODE_CBC, iv)
+                key2 = unpad(cipher.decrypt(ct), AES.block_size)
+            except (ValueError, KeyError):
+                print("Incorrect decryption")
+            
+            if selected_mode == "ECB":
+                plaintext = user_input.encode(FORMAT)
+                cipher1 = AES.new(key, AES.MODE_ECB)
+                intermediate = cipher1.encrypt(pad(plaintext, AES.block_size))
+                
+                # ENCRYPT: Segundo cifrado con key2
+                cipher2 = AES.new(key2, AES.MODE_ECB)
+                ct_bytes = cipher2.encrypt(intermediate)  # No necesita padding adicional
+                
+                # Codificar y formar el JSON
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({'ciphertext': ct})
+                
+                # Enviar mensaje doblemente cifrado
+                msg = result.encode('utf-8')
+                print("sent double-encrypted message")
+                client.send_bytes(msg)
+                
+                response = client.receive_bytes()
+                json_input = response.decode(FORMAT)
+                
+                try:
+                    b64 = json.loads(json_input)
+                    ct = b64decode(b64['ciphertext'])
+                    
+                    # Primer descifrado con key2
+                    cipher2_dec = AES.new(key2, AES.MODE_ECB)
+                    intermediate_dec = cipher2_dec.decrypt(ct)
+                    
+                    # Segundo descifrado con key1
+                    cipher1_dec = AES.new(key, AES.MODE_ECB)
+                    pt = unpad(cipher1_dec.decrypt(intermediate_dec), AES.block_size)
+                    
+                    print("The message was: ", pt.decode(FORMAT))
+                except (ValueError, KeyError) as e:
+                    print(f"Incorrect double decryption: {e}")
+                    
+
+            elif selected_mode == "CBC":
+                 # ENCRYPT: Primer cifrado con key1
+                plaintext = user_input.encode(FORMAT)
+                cipher1 = AES.new(key, AES.MODE_CBC)
+                iv1 = cipher1.iv  # Guardar IV del primer cifrado
+                intermediate = cipher1.encrypt(pad(plaintext, AES.block_size))
+                
+                # ENCRYPT: Segundo cifrado con key2
+                cipher2 = AES.new(key2, AES.MODE_CBC)
+                iv2 = cipher2.iv  # Guardar IV del segundo cifrado
+                ct_bytes = cipher2.encrypt(intermediate)  # No necesita padding adicional
+                
+                # Codificar y formar el JSON con ambos IVs
+                iv1_b64 = b64encode(iv1).decode('utf-8')
+                iv2_b64 = b64encode(iv2).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({
+                    'iv1': iv1_b64, 
+                    'iv2': iv2_b64, 
+                    'ciphertext': ct
+                })
+                
+                # Enviar mensaje doblemente cifrado
+                msg = result.encode('utf-8')
+                print("sent double-encrypted CBC message")
+                client.send_bytes(msg)
+    
+                if not chat_active:
+                    break
+        
+                # Recibir respuesta
+                response = client.receive_bytes()
+                json_input = response.decode(FORMAT)
+                
+                try:
+                    b64 = json.loads(json_input)
+                    ct = b64decode(b64['ciphertext'])
+                    iv2 = b64decode(b64['iv2'])
+                    iv1 = b64decode(b64['iv1'])
+                    
+                    # Primer descifrado con key2
+                    cipher2_dec = AES.new(key2, AES.MODE_CBC, iv=iv2)
+                    intermediate_dec = cipher2_dec.decrypt(ct)
+                    
+                    # Segundo descifrado con key1
+                    cipher1_dec = AES.new(key, AES.MODE_CBC, iv=iv1)
+                    pt = unpad(cipher1_dec.decrypt(intermediate_dec), AES.block_size)
+                    
+                    print("The message was: ", pt.decode(FORMAT))
+                except (ValueError, KeyError) as e:
+                    print(f"Incorrect double CBC decryption: {e}")
+                    
+                    
+            elif selected_mode == "CTR":
+                # ENCRYPT: Primer cifrado con key1
+                plaintext = user_input.encode(FORMAT)
+                cipher1 = AES.new(key, AES.MODE_CTR)
+                nonce1 = cipher1.nonce  # Guardar nonce del primer cifrado
+                intermediate = cipher1.encrypt(plaintext)  # CTR no requiere padding
+                
+                # ENCRYPT: Segundo cifrado con key2
+                cipher2 = AES.new(key2, AES.MODE_CTR)
+                nonce2 = cipher2.nonce  # Guardar nonce del segundo cifrado
+                ct_bytes = cipher2.encrypt(intermediate)
+                
+                # Codificar y formar el JSON con ambos nonces
+                nonce1_b64 = b64encode(nonce1).decode('utf-8')
+                nonce2_b64 = b64encode(nonce2).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({
+                    'nonce1': nonce1_b64, 
+                    'nonce2': nonce2_b64, 
+                    'ciphertext': ct
+                })
+                msg = result.encode('utf-8')
+                print("sent double-encrypted CTR message")
+                client.send_bytes(msg)
+                
+                if not chat_active:
+                    break
+                
+                # Recibir respuesta
+                response = client.receive_bytes()
+                json_input = response.decode(FORMAT)
+                
+                try:
+                    b64 = json.loads(json_input)
+                    ct = b64decode(b64['ciphertext'])
+                    nonce2 = b64decode(b64['nonce2'])
+                    nonce1 = b64decode(b64['nonce1'])
+                    
+                    # Primer descifrado con key2
+                    cipher2_dec = AES.new(key2, AES.MODE_CTR, nonce=nonce2)
+                    intermediate_dec = cipher2_dec.decrypt(ct)
+                    
+                    # Segundo descifrado con key1
+                    cipher1_dec = AES.new(key, AES.MODE_CTR, nonce=nonce1)
+                    pt = cipher1_dec.decrypt(intermediate_dec)  # CTR no requiere unpad
+                    
+                    print("The message was: ", pt.decode(FORMAT))
+                except (ValueError, KeyError) as e:
+                    print(f"Incorrect double CTR decryption: {e}")
+            
         elif choice_security=="3":
-            pass
-        elif choice_security=="4":
-            pass    
+            # Recibir key2 y key3 del servidor
+            key2 = client.receive_bytes()
+            json_input = key2.decode(FORMAT)
+            try:
+                b64 = json.loads(json_input)
+                iv = b64decode(b64['iv'])
+                ct = b64decode(b64['ciphertext'])
+                cipher = AES.new(key, AES.MODE_CBC, iv)
+                key2 = unpad(cipher.decrypt(ct), AES.block_size)
+            except (ValueError, KeyError):
+                print("Incorrect decryption")
+            
+            key3 = client.receive_bytes()
+            json_input = key3.decode(FORMAT)
+            try:
+                b64 = json.loads(json_input)
+                iv = b64decode(b64['iv'])
+                ct = b64decode(b64['ciphertext'])
+                cipher = AES.new(key, AES.MODE_CBC, iv)
+                key3 = unpad(cipher.decrypt(ct), AES.block_size)
+            except (ValueError, KeyError):
+                print("Incorrect decryption")
+            
+            if selected_mode == "ECB":
+                # ENCRYPT: Primera capa con key1
+                plaintext = user_input.encode(FORMAT)
+                cipher1 = AES.new(key, AES.MODE_ECB)
+                intermediate1 = cipher1.encrypt(pad(plaintext, AES.block_size))
+                
+                # ENCRYPT: Segunda capa con key2
+                cipher2 = AES.new(key2, AES.MODE_ECB)
+                intermediate2 = cipher2.encrypt(intermediate1)  # No necesita padding adicional
+                
+                # ENCRYPT: Tercera capa con key3
+                cipher3 = AES.new(key3, AES.MODE_ECB)
+                ct_bytes = cipher3.encrypt(intermediate2)  # No necesita padding adicional
+                
+                # Codificar y formar el JSON
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({'ciphertext': ct})
+                
+                # Enviar mensaje triplemente cifrado
+                msg = result.encode('utf-8')
+                print("sent triple-encrypted ECB message")
+                client.send_bytes(msg)
+                
+                if not chat_active:
+                    break
+                    
+                # Recibir respuesta del servidor
+                response = client.receive_bytes()
+                json_input = response.decode(FORMAT)
+                try:
+                    b64 = json.loads(json_input)
+                    ct = b64decode(b64['ciphertext'])
+                    
+                    # Descifrado en orden inverso
+                    # Primer descifrado con key3
+                    cipher3_dec = AES.new(key3, AES.MODE_ECB)
+                    intermediate2_dec = cipher3_dec.decrypt(ct)
+                    
+                    # Segundo descifrado con key2
+                    cipher2_dec = AES.new(key2, AES.MODE_ECB)
+                    intermediate1_dec = cipher2_dec.decrypt(intermediate2_dec)
+                    
+                    # Tercer descifrado con key1
+                    cipher1_dec = AES.new(key, AES.MODE_ECB)
+                    pt = unpad(cipher1_dec.decrypt(intermediate1_dec), AES.block_size)
+                    
+                    print("The message was: ", pt.decode(FORMAT))
+                except (ValueError, KeyError) as e:
+                    print(f"Incorrect triple ECB decryption: {e}")
+            
+            elif selected_mode == "CBC":
+                # ENCRYPT: Primera capa con key1
+                plaintext = user_input.encode(FORMAT)
+                cipher1 = AES.new(key, AES.MODE_CBC)
+                iv1 = cipher1.iv  # Guardar IV del primer cifrado
+                intermediate1 = cipher1.encrypt(pad(plaintext, AES.block_size))
+                
+                # ENCRYPT: Segunda capa con key2
+                cipher2 = AES.new(key2, AES.MODE_CBC)
+                iv2 = cipher2.iv  # Guardar IV del segundo cifrado
+                intermediate2 = cipher2.encrypt(intermediate1)
+                
+                # ENCRYPT: Tercera capa con key3
+                cipher3 = AES.new(key3, AES.MODE_CBC)
+                iv3 = cipher3.iv  # Guardar IV del tercer cifrado
+                ct_bytes = cipher3.encrypt(intermediate2)
+                
+                # Codificar y formar el JSON con los tres IVs
+                iv1_b64 = b64encode(iv1).decode('utf-8')
+                iv2_b64 = b64encode(iv2).decode('utf-8')
+                iv3_b64 = b64encode(iv3).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({
+                    'iv1': iv1_b64, 
+                    'iv2': iv2_b64, 
+                    'iv3': iv3_b64,
+                    'ciphertext': ct
+                })
+                
+                # Enviar mensaje triplemente cifrado
+                msg = result.encode('utf-8')
+                print("sent triple-encrypted CBC message")
+                client.send_bytes(msg)
+                
+                if not chat_active:
+                    break
+                    
+                # Recibir respuesta
+                response = client.receive_bytes()
+                json_input = response.decode(FORMAT)
+                
+                try:
+                    b64 = json.loads(json_input)
+                    ct = b64decode(b64['ciphertext'])
+                    iv3 = b64decode(b64['iv3'])
+                    iv2 = b64decode(b64['iv2'])
+                    iv1 = b64decode(b64['iv1'])
+                    
+                    # Descifrado en orden inverso
+                    # Primer descifrado con key3
+                    cipher3_dec = AES.new(key3, AES.MODE_CBC, iv=iv3)
+                    intermediate2_dec = cipher3_dec.decrypt(ct)
+                    
+                    # Segundo descifrado con key2
+                    cipher2_dec = AES.new(key2, AES.MODE_CBC, iv=iv2)
+                    intermediate1_dec = cipher2_dec.decrypt(intermediate2_dec)
+                    
+                    # Tercer descifrado con key1
+                    cipher1_dec = AES.new(key, AES.MODE_CBC, iv=iv1)
+                    pt = unpad(cipher1_dec.decrypt(intermediate1_dec), AES.block_size)
+                    
+                    print("The message was: ", pt.decode(FORMAT))
+                except (ValueError, KeyError) as e:
+                    print(f"Incorrect triple CBC decryption: {e}")
+                
+            elif selected_mode == "CTR":
+                # ENCRYPT: Primera capa con key1
+                plaintext = user_input.encode(FORMAT)
+                cipher1 = AES.new(key, AES.MODE_CTR)
+                nonce1 = cipher1.nonce  # Guardar nonce del primer cifrado
+                intermediate1 = cipher1.encrypt(plaintext)  # CTR no requiere padding
+                
+                # ENCRYPT: Segunda capa con key2
+                cipher2 = AES.new(key2, AES.MODE_CTR)
+                nonce2 = cipher2.nonce  # Guardar nonce del segundo cifrado
+                intermediate2 = cipher2.encrypt(intermediate1)
+                
+                # ENCRYPT: Tercera capa con key3
+                cipher3 = AES.new(key3, AES.MODE_CTR)
+                nonce3 = cipher3.nonce  # Guardar nonce del tercer cifrado
+                ct_bytes = cipher3.encrypt(intermediate2)
+                
+                # Codificar y formar el JSON con los tres nonces
+                nonce1_b64 = b64encode(nonce1).decode('utf-8')
+                nonce2_b64 = b64encode(nonce2).decode('utf-8')
+                nonce3_b64 = b64encode(nonce3).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({
+                    'nonce1': nonce1_b64, 
+                    'nonce2': nonce2_b64, 
+                    'nonce3': nonce3_b64,
+                    'ciphertext': ct
+                })
+                
+                # Enviar mensaje triplemente cifrado
+                msg = result.encode('utf-8')
+                print("sent triple-encrypted CTR message")
+                client.send_bytes(msg)
+                
+                if not chat_active:
+                    break
+                
+                # Recibir respuesta
+                response = client.receive_bytes()
+                json_input = response.decode(FORMAT)
+                
+                try:
+                    b64 = json.loads(json_input)
+                    ct = b64decode(b64['ciphertext'])
+                    nonce3 = b64decode(b64['nonce3'])
+                    nonce2 = b64decode(b64['nonce2'])
+                    nonce1 = b64decode(b64['nonce1'])
+                    
+                    # Descifrado en orden inverso
+                    # Primer descifrado con key3
+                    cipher3_dec = AES.new(key3, AES.MODE_CTR, nonce=nonce3)
+                    intermediate2_dec = cipher3_dec.decrypt(ct)
+                    
+                    # Segundo descifrado con key2
+                    cipher2_dec = AES.new(key2, AES.MODE_CTR, nonce=nonce2)
+                    intermediate1_dec = cipher2_dec.decrypt(intermediate2_dec)
+                    
+                    # Tercer descifrado con key1
+                    cipher1_dec = AES.new(key, AES.MODE_CTR, nonce=nonce1)
+                    pt = cipher1_dec.decrypt(intermediate1_dec)  # CTR no requiere unpad
+                    
+                    print("The message was: ", pt.decode(FORMAT))
+                except (ValueError, KeyError) as e:
+                    print(f"Incorrect triple CTR decryption: {e}")
+                
+        elif choice_security == "4":  # Key Whitening
+            # Recibir clave de blanqueamiento del servidor
+            key2 = client.receive_bytes()
+            json_input = key2.decode(FORMAT)
+            try:
+                b64 = json.loads(json_input)
+                iv = b64decode(b64['iv'])
+                ct = b64decode(b64['ciphertext'])
+                cipher = AES.new(key, AES.MODE_CBC, iv)
+                whitening_key = unpad(cipher.decrypt(ct), AES.block_size)
+            except (ValueError, KeyError):
+                print("Incorrect decryption")
+            
+            # Dividir la whitening key en dos partes
+            wk_len = len(whitening_key) // 2
+            pre_whitening = whitening_key[:wk_len]   # Para aplicar antes del cifrado
+            post_whitening = whitening_key[wk_len:]  # Para aplicar después del cifrado
+            
+            if selected_mode == "ECB":
+                # Convertir entrada a bytes
+                plaintext = user_input.encode(FORMAT)
+                
+                # PASO 1: Pre-whitening - XOR con la primera parte de la whitening key
+                # Asegurar que el plaintext tenga la longitud correcta para XOR
+                padded_plaintext = pad(plaintext, AES.block_size)
+                # Extender pre_whitening si es necesario para igualar longitud
+                pre_w_extended = pre_whitening * (len(padded_plaintext) // len(pre_whitening) + 1)
+                pre_w_extended = pre_w_extended[:len(padded_plaintext)]
+                # Aplicar XOR byte a byte
+                whitened_plaintext = bytes(a ^ b for a, b in zip(padded_plaintext, pre_w_extended))
+                
+                # PASO 2: Cifrado ECB estándar
+                cipher = AES.new(key, AES.MODE_ECB)
+                intermediate = cipher.encrypt(whitened_plaintext)
+                
+                # PASO 3: Post-whitening - XOR con la segunda parte de la whitening key
+                post_w_extended = post_whitening * (len(intermediate) // len(post_whitening) + 1)
+                post_w_extended = post_w_extended[:len(intermediate)]
+                ct_bytes = bytes(a ^ b for a, b in zip(intermediate, post_w_extended))
+                
+                # Codificar y formar el JSON
+                ct = b64encode(ct_bytes).decode('utf-8')
+                # También incluir el identificador de whitening para el descifrado
+                result = json.dumps({'ciphertext': ct, 'whitening': True})
+                
+                # Enviar mensaje con whitening
+                msg = result.encode('utf-8')
+                print("sent whitened-ECB message")
+                client.send_bytes(msg)
+                
+                if not chat_active:
+                    break
+                
+                # RECIBIR Y DESCIFRAR
+                response = client.receive_bytes()
+                json_input = response.decode(FORMAT)
+                
+                try:
+                    b64 = json.loads(json_input)
+                    ct = b64decode(b64['ciphertext'])
+                    
+                    # PASO 1: Invertir post-whitening
+                    post_w_extended = post_whitening * (len(ct) // len(post_whitening) + 1)
+                    post_w_extended = post_w_extended[:len(ct)]
+                    intermediate_dec = bytes(a ^ b for a, b in zip(ct, post_w_extended))
+                    
+                    # PASO 2: Descifrado ECB estándar
+                    cipher = AES.new(key, AES.MODE_ECB)
+                    whitened_plaintext_dec = cipher.decrypt(intermediate_dec)
+                    
+                    # PASO 3: Invertir pre-whitening
+                    pre_w_extended = pre_whitening * (len(whitened_plaintext_dec) // len(pre_whitening) + 1)
+                    pre_w_extended = pre_w_extended[:len(whitened_plaintext_dec)]
+                    plaintext_padded = bytes(a ^ b for a, b in zip(whitened_plaintext_dec, pre_w_extended))
+                    
+                    # Quitar padding
+                    pt = unpad(plaintext_padded, AES.block_size)
+                    
+                    print("The message was: ", pt.decode(FORMAT))
+                except (ValueError, KeyError) as e:
+                    print(f"Incorrect whitening decryption: {e}")
+            elif selected_mode == "CBC":
+                # Convertir entrada a bytes
+                plaintext = user_input.encode(FORMAT)
+                
+                # PASO 1: Pre-whitening - XOR con la primera parte de la whitening key
+                padded_plaintext = pad(plaintext, AES.block_size)
+                pre_w_extended = pre_whitening * (len(padded_plaintext) // len(pre_whitening) + 1)
+                pre_w_extended = pre_w_extended[:len(padded_plaintext)]
+                whitened_plaintext = bytes(a ^ b for a, b in zip(padded_plaintext, pre_w_extended))
+                
+                # PASO 2: Cifrado CBC estándar
+                cipher = AES.new(key, AES.MODE_CBC)
+                iv = cipher.iv  # Guardar el IV
+                intermediate = cipher.encrypt(whitened_plaintext)
+                
+                # PASO 3: Post-whitening - XOR con la segunda parte de la whitening key
+                post_w_extended = post_whitening * (len(intermediate) // len(post_whitening) + 1)
+                post_w_extended = post_w_extended[:len(intermediate)]
+                ct_bytes = bytes(a ^ b for a, b in zip(intermediate, post_w_extended))
+                
+                # Codificar y formar el JSON
+                iv_b64 = b64encode(iv).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({'iv': iv_b64, 'ciphertext': ct, 'whitening': True})
+                
+                # Enviar mensaje con whitening
+                msg = result.encode('utf-8')
+                print("sent whitened-CBC message")
+                client.send_bytes(msg)
+                
+                if not chat_active:
+                    break
+                
+                # RECIBIR Y DESCIFRAR
+                response = client.receive_bytes()
+                json_input = response.decode(FORMAT)
+                
+                try:
+                    b64 = json.loads(json_input)
+                    ct = b64decode(b64['ciphertext'])
+                    iv = b64decode(b64['iv'])
+                    
+                    # PASO 1: Invertir post-whitening
+                    post_w_extended = post_whitening * (len(ct) // len(post_whitening) + 1)
+                    post_w_extended = post_w_extended[:len(ct)]
+                    intermediate_dec = bytes(a ^ b for a, b in zip(ct, post_w_extended))
+                    
+                    # PASO 2: Descifrado CBC estándar
+                    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+                    whitened_plaintext_dec = cipher.decrypt(intermediate_dec)
+                    
+                    # PASO 3: Invertir pre-whitening
+                    pre_w_extended = pre_whitening * (len(whitened_plaintext_dec) // len(pre_whitening) + 1)
+                    pre_w_extended = pre_w_extended[:len(whitened_plaintext_dec)]
+                    plaintext_padded = bytes(a ^ b for a, b in zip(whitened_plaintext_dec, pre_w_extended))
+                    
+                    # Quitar padding
+                    pt = unpad(plaintext_padded, AES.block_size)
+                    
+                    print("The message was: ", pt.decode(FORMAT))
+                except (ValueError, KeyError) as e:
+                    print(f"Incorrect whitening CBC decryption: {e}")
+            else: # CTR
+                # Convertir entrada a bytes
+                plaintext = user_input.encode(FORMAT)
+                
+                # PASO 1: Pre-whitening - XOR con la primera parte de la whitening key
+                # CTR no requiere padding, así que aplicamos XOR directamente
+                pre_w_extended = pre_whitening * (len(plaintext) // len(pre_whitening) + 1)
+                pre_w_extended = pre_w_extended[:len(plaintext)]
+                # Aplicar XOR byte a byte
+                whitened_plaintext = bytes(a ^ b for a, b in zip(plaintext, pre_w_extended))
+                
+                # PASO 2: Cifrado CTR estándar
+                cipher = AES.new(key, AES.MODE_CTR)
+                nonce = cipher.nonce  # Guardar el nonce
+                intermediate = cipher.encrypt(whitened_plaintext)
+                
+                # PASO 3: Post-whitening - XOR con la segunda parte de la whitening key
+                post_w_extended = post_whitening * (len(intermediate) // len(post_whitening) + 1)
+                post_w_extended = post_w_extended[:len(intermediate)]
+                ct_bytes = bytes(a ^ b for a, b in zip(intermediate, post_w_extended))
+                
+                # Codificar y formar el JSON
+                nonce_b64 = b64encode(nonce).decode('utf-8')
+                ct = b64encode(ct_bytes).decode('utf-8')
+                result = json.dumps({
+                    'nonce': nonce_b64, 
+                    'ciphertext': ct, 
+                    'whitening': True
+                })
+                
+                # Enviar mensaje con whitening
+                msg = result.encode('utf-8')
+                print("sent whitened-CTR message")
+                client.send_bytes(msg)
+                
+                if not chat_active:
+                    break
+                
+                # RECIBIR Y DESCIFRAR
+                response = client.receive_bytes()
+                json_input = response.decode(FORMAT)
+                
+                try:
+                    b64 = json.loads(json_input)
+                    ct = b64decode(b64['ciphertext'])
+                    nonce = b64decode(b64['nonce'])
+                    
+                    # PASO 1: Invertir post-whitening
+                    post_w_extended = post_whitening * (len(ct) // len(post_whitening) + 1)
+                    post_w_extended = post_w_extended[:len(ct)]
+                    intermediate_dec = bytes(a ^ b for a, b in zip(ct, post_w_extended))
+                    
+                    # PASO 2: Descifrado CTR estándar
+                    cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
+                    whitened_plaintext_dec = cipher.decrypt(intermediate_dec)
+                    
+                    # PASO 3: Invertir pre-whitening
+                    pre_w_extended = pre_whitening * (len(whitened_plaintext_dec) // len(pre_whitening) + 1)
+                    pre_w_extended = pre_w_extended[:len(whitened_plaintext_dec)]
+                    pt = bytes(a ^ b for a, b in zip(whitened_plaintext_dec, pre_w_extended))
+                    
+                    # CTR no usa padding, así que no necesitamos unpad()
+                    print("The message was: ", pt.decode(FORMAT))
+                except (ValueError, KeyError) as e:
+                    print(f"Incorrect whitening CTR decryption: {e}")
+                
+                    
+                
             
 
 def select_cipher(client):
@@ -258,6 +823,7 @@ def cipher_block():
     if not aes_prompt:
         print("No response from server after sending key received confirmation")
         return None
+    print(aes_prompt)
     valid = False
     while not valid: 
         try:
@@ -275,11 +841,11 @@ def cipher_block():
                 print("Modo inválido")
         except ValueError:
             print("Selecciona un número")
-    send_mode = (f"MODE:{mode}")
+    send_mode = (f"AES_MODE:{mode}")
     client.send(send_mode)
     response = client.receive()
     while True:
-        choice_security = input(f"response")
+        choice_security = input(response)
         if choice_security == "1":
             break
         elif choice_security == "2":
@@ -301,7 +867,7 @@ def download_key_from_drive():
     Descarga el archivo de clave AES desde Google Drive
     """
     # Obtener la ruta absoluta del directorio del script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dir = os.path.dirname(os.path.abspath(_file_))
     
     # Especificar la ruta completa al archivo client_secrets.json
     client_secrets_path = os.path.join(script_dir, "client_secrets.json")
