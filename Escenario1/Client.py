@@ -258,11 +258,10 @@ def cipher_block():
     if not aes_prompt:
         print("No response from server after sending key received confirmation")
         return None
-    print(aes_prompt)
     valid = False
     while not valid: 
         try:
-            aes_mode = int(input("Selecciona el modo (1: ECB, 2: CBC, 3: CTR): "))
+            aes_mode = int(input(aes_prompt))
             if aes_mode == 1:
                 mode = "ECB"
                 valid = True
