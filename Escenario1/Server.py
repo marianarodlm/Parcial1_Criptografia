@@ -801,11 +801,13 @@ def handle_client(conn, addr):
                             # Use send_bytes instead of direct conn.send
                             send_bytes(conn, key)
                             print(f"[{addr}] Sent key: {key.hex()}")
+                            encrypted_chat(conn, selected_cipher, key)
                     elif selected_cipher == "ChaCha20":
                         key = get_random_bytes(32)
                         # Use send_bytes instead of direct conn.send
                         send_bytes(conn, key)
                         print(f"[{addr}] Sent key: {key.hex()}")
+                        encrypted_chat(conn, selected_cipher, key)
                     elif selected_cipher == "BLOCK":
                         print(f"[{addr}] Selected block cipher")
                         key = get_random_bytes(32)

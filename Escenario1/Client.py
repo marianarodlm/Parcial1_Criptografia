@@ -13,7 +13,7 @@ from pydrive2.drive import GoogleDrive
 # Constants for the client configuration
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
-SERVER = '192.168.1.62'  # Asegúrate de que esta IP sea la del servidor
+SERVER = '127.0.0.1'  # Asegúrate de que esta IP sea la del servidor
 PORT = 5050
 
 def log_performance(algorithm, operation, duration):
@@ -867,7 +867,7 @@ def download_key_from_drive():
     Descarga el archivo de clave AES desde Google Drive
     """
     # Obtener la ruta absoluta del directorio del script
-    script_dir = os.path.dirname(os.path.abspath(_file_))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     
     # Especificar la ruta completa al archivo client_secrets.json
     client_secrets_path = os.path.join(script_dir, "client_secrets.json")
